@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, Pause, Music, ExternalLink, SkipBack, SkipForward, Volume2, VolumeX } from 'lucide-react';
+import { Play, Pause, Music, ExternalLink, SkipBack, SkipForward, Volume2, VolumeX, AlertCircle, RefreshCw } from 'lucide-react';
+import { ambientSynth } from '../utils/audioSynth';
 
 interface YouTubeFriendshipPlayerProps {
   autoPlayTrigger?: boolean;
@@ -19,129 +20,140 @@ export const YouTubeFriendshipPlayer: React.FC<YouTubeFriendshipPlayerProps> = (
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
-  const [bars, setBars] = useState<number[]>([40, 65, 85, 50, 70]);
+  const [bars, setBars] = useState<number[]>([20, 20, 20, 20, 20]);
+  const [isReady, setIsReady] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  
   const playerRef = useRef<any>(null);
-  const containerRef = useRef<HTMLDivElement | null>(null);
+  const VIDEO_ID = 'EatzcaVJRMs'; // Tera Yaar Hoon Main
 
-  const VIDEO_ID = 'EatzcaVJRMs'; // Tera Yaar Hoon Main (Sonu Ke Titu Ki Sweety)
-
+  // Initialize Player
   useEffect(() => {
     let isMounted = true;
 
-    // Load YouTube IFrame API script
-    const loadScript = () => {
-      if (!window.YT) {
-        const tag = document.createElement('script');
-        tag.src = 'https://www.youtube.com/iframe_api';
-        const firstScriptTag = document.getElementsByTagName('script')[0];
-        firstScriptTag?.parentNode?.insertBefore(tag, firstScriptTag);
-
-        window.onYouTubeIframeAPIReady = () => {
-          if (isMounted) createPlayer();
-        };
-      } else if (window.YT && window.YT.Player) {
-        createPlayer();
-      }
-    };
-
     const createPlayer = () => {
-      if (document.getElementById('yt-player-element')) {
-        try {
-          playerRef.current = new window.YT.Player('yt-player-element', {
-            height: '200',
-            width: '300',
-            videoId: VIDEO_ID,
-            playerVars: {
-              autoplay: autoPlayTrigger ? 1 : 0,
-              playsinline: 1,
-              enablejsapi: 1,
-              loop: 1,
-              playlist: VIDEO_ID,
-              controls: 0,
-              modestbranding: 1,
-              rel: 0,
-            },
-            events: {
-              onReady: (event: any) => {
-                if (!isMounted) return;
-                try {
-                  const dur = event.target.getDuration();
-                  if (dur) setDuration(dur);
-                } catch {}
+      if (!isMounted || !window.YT || !window.YT.Player) return;
+      
+      const el = document.getElementById('yt-player-target');
+      if (!el) return;
 
-                if (autoPlayTrigger) {
-                  try {
-                    event.target.playVideo();
-                    setIsPlaying(true);
-                  } catch {}
+      try {
+        playerRef.current = new window.YT.Player('yt-player-target', {
+          height: '10',
+          width: '10',
+          videoId: VIDEO_ID,
+          playerVars: {
+            autoplay: autoPlayTrigger ? 1 : 0,
+            playsinline: 1,
+            enablejsapi: 1,
+            loop: 1,
+            playlist: VIDEO_ID,
+            origin: window.location.origin,
+            controls: 0,
+            modestbranding: 1,
+          },
+          events: {
+            onReady: (event: any) => {
+              if (!isMounted) return;
+              setIsReady(true);
+              setLoadError(false);
+              const dur = event.target.getDuration();
+              if (dur) setDuration(dur);
+              
+              if (autoPlayTrigger) {
+                try {
+                  event.target.playVideo();
+                } catch (e) {
+                  console.error('Autoplay failed:', e);
                 }
-              },
-              onStateChange: (event: any) => {
-                if (!isMounted) return;
-                // YT.PlayerState.PLAYING = 1, PAUSED = 2, ENDED = 0
-                if (event.data === 1) {
-                  setIsPlaying(true);
-                  try {
-                    const dur = event.target.getDuration();
-                    if (dur) setDuration(dur);
-                  } catch {}
-                } else if (event.data === 2 || event.data === 0) {
-                  setIsPlaying(false);
-                }
-              },
+              }
             },
-          });
-        } catch {}
+            onStateChange: (event: any) => {
+              if (!isMounted) return;
+              // 1 = playing, 2 = paused, 0 = ended, 3 = buffering, -1 = unstarted, 5 = cued
+              if (event.data === 1) {
+                setIsPlaying(true);
+                setLoadError(false);
+                const dur = event.target.getDuration();
+                if (dur) setDuration(dur);
+              } else if (event.data === 2 || event.data === 0) {
+                setIsPlaying(false);
+              }
+            },
+            onError: (e: any) => {
+              console.error('YouTube Player Error:', e);
+              if (isMounted) setLoadError(true);
+            }
+          },
+        });
+      } catch (err) {
+        console.error('Failed to create YT player:', err);
+        if (isMounted) setLoadError(true);
       }
     };
 
-    loadScript();
+    if (!window.YT) {
+      const tag = document.createElement('script');
+      tag.src = 'https://www.youtube.com/iframe_api';
+      const firstScriptTag = document.getElementsByTagName('script')[0];
+      firstScriptTag?.parentNode?.insertBefore(tag, firstScriptTag);
+      window.onYouTubeIframeAPIReady = () => {
+        if (isMounted) createPlayer();
+      };
+    } else if (window.YT.Player) {
+      createPlayer();
+    } else {
+      // Script is loading but callback not yet fired
+      const checkInterval = setInterval(() => {
+        if (window.YT && window.YT.Player) {
+          createPlayer();
+          clearInterval(checkInterval);
+        }
+      }, 100);
+      return () => clearInterval(checkInterval);
+    }
 
     return () => {
       isMounted = false;
-      try {
-        if (playerRef.current && typeof playerRef.current.destroy === 'function') {
+      if (playerRef.current && typeof playerRef.current.destroy === 'function') {
+        try {
           playerRef.current.destroy();
-        }
-      } catch {}
+        } catch {}
+      }
     };
   }, []);
 
-  // When autoPlayTrigger turns true (user clicks "Open My Letter")
+  // Sync autoplay trigger
   useEffect(() => {
-    if (autoPlayTrigger && playerRef.current) {
+    if (autoPlayTrigger && isReady && playerRef.current) {
       try {
         if (typeof playerRef.current.playVideo === 'function') {
           playerRef.current.playVideo();
-          setIsPlaying(true);
         }
       } catch {}
     }
-  }, [autoPlayTrigger]);
+  }, [autoPlayTrigger, isReady]);
 
-  // Sync timer during playback
+  // Timer Ticker
   useEffect(() => {
     let interval: any;
-    if (isPlaying && playerRef.current && typeof playerRef.current.getCurrentTime === 'function') {
+    if (isPlaying && isReady && playerRef.current) {
       interval = setInterval(() => {
         try {
           const curr = playerRef.current.getCurrentTime();
-          const dur = playerRef.current.getDuration();
           if (curr !== undefined) setCurrentTime(curr);
-          if (dur && dur !== duration) setDuration(dur);
         } catch {}
       }, 500);
     }
     return () => clearInterval(interval);
-  }, [isPlaying, duration]);
+  }, [isPlaying, isReady]);
 
-  // Equalizer visualizer animation
+  // Animation Visualizer
   useEffect(() => {
     if (!isPlaying) {
       setBars([20, 20, 20, 20, 20]);
       return;
     }
-
     const interval = setInterval(() => {
       setBars([
         Math.floor(Math.random() * 60) + 25,
@@ -151,12 +163,11 @@ export const YouTubeFriendshipPlayer: React.FC<YouTubeFriendshipPlayerProps> = (
         Math.floor(Math.random() * 75) + 25,
       ]);
     }, 150);
-
     return () => clearInterval(interval);
   }, [isPlaying]);
 
   const togglePlayback = () => {
-    if (playerRef.current && typeof playerRef.current.playVideo === 'function') {
+    if (isReady && playerRef.current) {
       try {
         if (isPlaying) {
           playerRef.current.pauseVideo();
@@ -166,11 +177,15 @@ export const YouTubeFriendshipPlayer: React.FC<YouTubeFriendshipPlayerProps> = (
           setIsPlaying(true);
         }
       } catch {}
+    } else {
+      // If YT fails, we could potentially fallback to synth here
+      // But user specifically wants this song.
+      setLoadError(true);
     }
   };
 
   const seekBy = (seconds: number) => {
-    if (playerRef.current && typeof playerRef.current.getCurrentTime === 'function') {
+    if (isReady && playerRef.current) {
       try {
         const curr = playerRef.current.getCurrentTime() || 0;
         const target = Math.max(0, Math.min(duration || 300, curr + seconds));
@@ -183,7 +198,7 @@ export const YouTubeFriendshipPlayer: React.FC<YouTubeFriendshipPlayerProps> = (
   const handleSeekSlider = (e: React.ChangeEvent<HTMLInputElement>) => {
     const seekTime = parseFloat(e.target.value);
     setCurrentTime(seekTime);
-    if (playerRef.current && typeof playerRef.current.seekTo === 'function') {
+    if (isReady && playerRef.current) {
       try {
         playerRef.current.seekTo(seekTime, true);
       } catch {}
@@ -191,12 +206,15 @@ export const YouTubeFriendshipPlayer: React.FC<YouTubeFriendshipPlayerProps> = (
   };
 
   const toggleMute = () => {
-    const nextMute = !isMuted;
-    setIsMuted(nextMute);
-    if (playerRef.current && typeof playerRef.current.mute === 'function') {
+    if (isReady && playerRef.current) {
       try {
-        if (nextMute) playerRef.current.mute();
-        else playerRef.current.unMute();
+        if (isMuted) {
+          playerRef.current.unMute();
+          setIsMuted(false);
+        } else {
+          playerRef.current.mute();
+          setIsMuted(true);
+        }
       } catch {}
     }
   };
@@ -209,18 +227,17 @@ export const YouTubeFriendshipPlayer: React.FC<YouTubeFriendshipPlayerProps> = (
   };
 
   return (
-    <div className="w-full bg-white/95 backdrop-blur-md border border-sky-100 rounded-2xl p-3.5 sm:p-4 shadow-md shadow-sky-500/5">
-      {/* YouTube Iframe element - kept in 1x1 opacity-0 container so Chrome/Safari doesn't suspend audio */}
-      <div className="w-1 h-1 opacity-0 overflow-hidden pointer-events-none absolute -z-10" ref={containerRef}>
-        <div id="yt-player-element" />
+    <div className="w-full bg-white/95 backdrop-blur-md border border-sky-100 rounded-2xl p-3.5 sm:p-4 shadow-md shadow-sky-500/5 relative overflow-hidden">
+      {/* Tiny Invisible Player Element */}
+      <div className="absolute top-0 left-0 w-[1px] h-[1px] opacity-0 overflow-hidden pointer-events-none">
+        <div id="yt-player-target" />
       </div>
 
-      {/* Main Track Row */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-        {/* Track Title & Artist */}
+        {/* Info & Visualizer */}
         <div className="flex items-center gap-3 w-full sm:w-auto">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-500 via-sky-600 to-blue-600 text-white flex items-center justify-center shrink-0 shadow-sm shadow-sky-300">
-            <Music className="w-5 h-5" />
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-500 via-sky-600 to-blue-600 text-white flex items-center justify-center shrink-0 shadow-sm">
+            {loadError ? <AlertCircle className="w-5 h-5 text-red-100 animate-pulse" /> : <Music className="w-5 h-5" />}
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
@@ -232,49 +249,59 @@ export const YouTubeFriendshipPlayer: React.FC<YouTubeFriendshipPlayerProps> = (
               </span>
             </div>
             <p className="text-[11px] text-slate-500 truncate mt-0.5">
-              {isPlaying ? 'Playing "Tera Yaar Hoon Main" from YouTube...' : 'YouTube Song Loaded · Click Play'}
+              {loadError 
+                ? 'Failed to load from YouTube. Click Refresh or the Link.'
+                : isPlaying 
+                  ? 'Playing our friendship soundtrack...' 
+                  : isReady 
+                    ? 'Song ready. Click play if it didn\'t start!' 
+                    : 'Connecting to YouTube servers...'}
             </p>
           </div>
 
-          {/* Equalizer Visualizer */}
-          <div className="flex items-end gap-1 h-5 px-1 shrink-0" aria-label="Audio Visualizer">
+          <div className="flex items-end gap-1 h-5 px-1 shrink-0">
             {bars.map((height, i) => (
               <span
                 key={i}
-                className="w-1 bg-gradient-to-t from-sky-500 to-cyan-400 rounded-full transition-all duration-150"
+                className="w-1 bg-sky-500 rounded-full transition-all duration-150"
                 style={{ height: `${height}%` }}
               />
             ))}
           </div>
         </div>
 
-        {/* Action Controls & Seek buttons */}
+        {/* Controls */}
         <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-          {/* Mute button */}
+          {loadError && (
+            <button 
+              onClick={() => window.location.reload()}
+              className="p-2 text-sky-600 bg-sky-50 rounded-xl border border-sky-200 hover:bg-sky-100 transition-colors"
+              title="Refresh Page"
+            >
+              <RefreshCw className="w-4 h-4" />
+            </button>
+          )}
+
           <button
-            type="button"
             onClick={toggleMute}
-            className="p-2 text-slate-500 hover:text-sky-700 hover:bg-sky-50 rounded-xl transition-colors border border-slate-200 cursor-pointer"
+            className="p-2 text-slate-500 hover:text-sky-700 hover:bg-sky-50 rounded-xl transition-colors border border-slate-200"
             title={isMuted ? 'Unmute' : 'Mute'}
           >
             {isMuted ? <VolumeX className="w-4 h-4 text-red-500" /> : <Volume2 className="w-4 h-4" />}
           </button>
 
-          {/* Skip Back 10s */}
           <button
-            type="button"
             onClick={() => seekBy(-10)}
-            className="flex items-center justify-center p-2 text-sky-800 bg-sky-50 hover:bg-sky-100 border border-sky-200 rounded-xl transition-colors cursor-pointer"
+            className="p-2 text-sky-800 bg-sky-50 hover:bg-sky-100 border border-sky-200 rounded-xl transition-colors cursor-pointer"
             title="Rewind 10s"
           >
             <SkipBack className="w-4 h-4 fill-current" />
           </button>
 
-          {/* Main Play/Pause Button */}
           <button
-            type="button"
             onClick={togglePlayback}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-semibold text-white bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 shadow-md shadow-sky-300 transition-all cursor-pointer shrink-0"
+            disabled={!isReady && !loadError}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-semibold text-white bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 shadow-md transition-all cursor-pointer shrink-0 disabled:opacity-50"
           >
             {isPlaying ? (
               <>
@@ -289,43 +316,40 @@ export const YouTubeFriendshipPlayer: React.FC<YouTubeFriendshipPlayerProps> = (
             )}
           </button>
 
-          {/* Skip Forward 10s */}
           <button
-            type="button"
             onClick={() => seekBy(10)}
-            className="flex items-center justify-center p-2 text-sky-800 bg-sky-50 hover:bg-sky-100 border border-sky-200 rounded-xl transition-colors cursor-pointer"
+            className="p-2 text-sky-800 bg-sky-50 hover:bg-sky-100 border border-sky-200 rounded-xl transition-colors cursor-pointer"
             title="Forward 10s"
           >
             <SkipForward className="w-4 h-4 fill-current" />
           </button>
 
-          {/* YouTube Original Video Link */}
           <a
-            href="https://youtu.be/EatzcaVJRMs?si=NCYcZArPpBiGAOHb"
+            href="https://youtu.be/EatzcaVJRMs?si=zK5t2olO1LoUBKc1"
             target="_blank"
             rel="noopener noreferrer"
             className="p-2 text-red-600 bg-red-50 hover:bg-red-100 rounded-xl transition-colors border border-red-200"
-            title="Open Tera Yaar Hoon Main on YouTube"
+            title="Open on YouTube"
           >
             <ExternalLink className="w-4 h-4" />
           </a>
         </div>
       </div>
 
-      {/* Interactive Seek Bar */}
-      {duration > 0 && (
+      {/* Progress Bar */}
+      {duration > 0 && !loadError && (
         <div className="mt-2.5 pt-2 border-t border-sky-100/70 flex items-center gap-2 text-[11px] font-mono text-slate-500">
-          <span>{formatTime(currentTime)}</span>
+          <span className="w-10 text-right">{formatTime(currentTime)}</span>
           <input
             type="range"
             min="0"
-            max={duration || 100}
+            max={duration}
+            step="1"
             value={currentTime}
             onChange={handleSeekSlider}
             className="w-full h-1.5 bg-slate-200 rounded-lg accent-sky-600 cursor-pointer"
-            title="Seek song"
           />
-          <span>{formatTime(duration)}</span>
+          <span className="w-10">{formatTime(duration)}</span>
         </div>
       )}
     </div>
