@@ -1,0 +1,6 @@
+{
+  "name": "8 Years of Friendship - For Prince Sharma",
+  "description": "A heartfelt interactive letter and keepsake celebrating 8 beautiful years of friendship with Prince Sharma, complete with memories, interactive envelope, music, and photo album.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
